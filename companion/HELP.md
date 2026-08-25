@@ -19,7 +19,7 @@ Because destinations are whitelisted by name inside KnowCore, Companion can only
 - **Set tag destination** — always switches *to* the destination (never toggles off) — useful for triggers/automation, e.g. a ProPresenter slide cue.
 - **Revert to check-in** — taps behave normally again.
 
-Every redirect carries an auto-revert timeout (default 3 hours, max 12) as a safety net in case nobody presses revert after the service.
+Every redirect carries an auto-revert timeout (default 5 minutes, max 12 hours) as a safety net in case nobody presses revert after the service.
 
 ## Feedbacks
 

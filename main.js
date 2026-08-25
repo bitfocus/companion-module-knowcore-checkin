@@ -207,7 +207,7 @@ class KnowCoreInstance extends InstanceBase {
 						type: 'number',
 						id: 'ttlMinutes',
 						label: 'Auto-revert after (minutes)',
-						default: 180,
+						default: 5,
 						min: 1,
 						max: 720,
 						tooltip: 'Safety net: the redirect reverts to check-in on its own after this long',
@@ -218,7 +218,7 @@ class KnowCoreInstance extends InstanceBase {
 					if (!target) return
 					const data = await this.apiRequest('POST', {
 						target,
-						ttlMinutes: Number(event.options.ttlMinutes) || 180,
+						ttlMinutes: Number(event.options.ttlMinutes) || 5,
 					})
 					this.state.target = data.target || target
 					this.state.expiresAt = data.expiresAt || null
@@ -242,7 +242,7 @@ class KnowCoreInstance extends InstanceBase {
 						type: 'number',
 						id: 'ttlMinutes',
 						label: 'Auto-revert after (minutes)',
-						default: 180,
+						default: 5,
 						min: 1,
 						max: 720,
 					},
@@ -257,7 +257,7 @@ class KnowCoreInstance extends InstanceBase {
 					} else {
 						const data = await this.apiRequest('POST', {
 							target,
-							ttlMinutes: Number(event.options.ttlMinutes) || 180,
+							ttlMinutes: Number(event.options.ttlMinutes) || 5,
 						})
 						this.state.target = data.target || target
 						this.state.expiresAt = data.expiresAt || null
@@ -343,7 +343,7 @@ class KnowCoreInstance extends InstanceBase {
 				},
 				steps: [
 					{
-						down: [{ actionId: 'toggle_target', options: { target: d.key, ttlMinutes: 180 } }],
+						down: [{ actionId: 'toggle_target', options: { target: d.key, ttlMinutes: 5 } }],
 						up: [],
 					},
 				],
