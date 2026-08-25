@@ -15,8 +15,11 @@ Because destinations are whitelisted by name inside KnowCore, Companion can only
 
 ## Actions
 
-- **Set tag destination** — redirect all tag taps to a destination, with an auto-revert timeout (default 3 hours, max 12) as a safety net.
+- **Toggle tag destination** — press to redirect all tag taps to a destination, press again to revert to check-in (what the destination presets use).
+- **Set tag destination** — always switches *to* the destination (never toggles off) — useful for triggers/automation, e.g. a ProPresenter slide cue.
 - **Revert to check-in** — taps behave normally again.
+
+Every redirect carries an auto-revert timeout (default 3 hours, max 12) as a safety net in case nobody presses revert after the service.
 
 ## Feedbacks
 

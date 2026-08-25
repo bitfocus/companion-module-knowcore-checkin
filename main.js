@@ -226,6 +226,46 @@ class KnowCoreInstance extends InstanceBase {
 					this.checkFeedbacks('target_active', 'redirect_live', 'checkin_active')
 				},
 			},
+			toggle_target: {
+				name: 'Toggle tag destination',
+				description: 'Press to redirect taps to the destination; press again to revert to check-in',
+				options: [
+					{
+						type: 'dropdown',
+						id: 'target',
+						label: 'Destination',
+						choices: choices.length ? choices : [{ id: '', label: 'No destinations yet — add them in KnowCore (Check-Ins → Tag Redirect)' }],
+						default: choices.length ? choices[0].id : '',
+						allowCustom: true,
+					},
+					{
+						type: 'number',
+						id: 'ttlMinutes',
+						label: 'Auto-revert after (minutes)',
+						default: 180,
+						min: 1,
+						max: 720,
+					},
+				],
+				callback: async (event) => {
+					const target = String(event.options.target || '').trim()
+					if (!target) return
+					if (this.state.target === target) {
+						await this.apiRequest('POST', { clear: true })
+						this.state.target = CHECKIN
+						this.state.expiresAt = null
+					} else {
+						const data = await this.apiRequest('POST', {
+							target,
+							ttlMinutes: Number(event.options.ttlMinutes) || 180,
+						})
+						this.state.target = data.target || target
+						this.state.expiresAt = data.expiresAt || null
+					}
+					this.refreshVariables()
+					this.checkFeedbacks('target_active', 'redirect_live', 'checkin_active')
+				},
+			},
 			revert: {
 				name: 'Revert to check-in',
 				options: [],
@@ -303,7 +343,7 @@ class KnowCoreInstance extends InstanceBase {
 				},
 				steps: [
 					{
-						down: [{ actionId: 'set_target', options: { target: d.key, ttlMinutes: 180 } }],
+						down: [{ actionId: 'toggle_target', options: { target: d.key, ttlMinutes: 180 } }],
 						up: [],
 					},
 				],
