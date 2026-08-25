@@ -21,7 +21,6 @@ Because destinations are whitelisted by name inside KnowCore, Companion can only
 ## Feedbacks
 
 - **Check-in is active** — button lights up green while taps behave normally (used on the "Tags → Check-In" preset).
-
 - **Destination is active** — button lights up while taps are being redirected to that destination.
 - **Any redirect is active** — lights up whenever taps go anywhere other than normal check-in.
 
