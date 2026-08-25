@@ -1,6 +1,6 @@
 {
 	"name": "companion-module-knowcore-checkin",
-	"version": "1.0.3",
+	"version": "1.0.4",
 	"main": "main.js",
 	"license": "MIT",
 	"repository": {

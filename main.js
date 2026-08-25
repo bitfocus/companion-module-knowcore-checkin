@@ -56,7 +56,7 @@ class KnowCoreInstance extends InstanceBase {
 				id: 'pollInterval',
 				label: 'Status poll interval (seconds)',
 				width: 4,
-				default: 30,
+				default: 10,
 				min: 10,
 				max: 300,
 			},
@@ -112,7 +112,7 @@ class KnowCoreInstance extends InstanceBase {
 		}
 		this.updateStatus(InstanceStatus.Connecting)
 		await this.pollStatus()
-		const interval = Math.min(300, Math.max(10, Number(this.config.pollInterval) || 30)) * 1000
+		const interval = Math.min(300, Math.max(10, Number(this.config.pollInterval) || 10)) * 1000
 		this.pollTimer = setInterval(() => {
 			this.pollStatus().catch(() => {})
 		}, interval)
