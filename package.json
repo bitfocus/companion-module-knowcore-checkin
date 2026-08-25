@@ -1,0 +1,22 @@
+{
+	"name": "companion-module-knowcore-checkin",
+	"version": "1.0.0",
+	"main": "main.js",
+	"license": "MIT",
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/bitfocus/companion-module-knowcore-checkin.git"
+	},
+	"scripts": {
+		"format": "prettier -w .",
+		"package": "companion-module-build"
+	},
+	"prettier": "@companion-module/tools/.prettierrc.json",
+	"dependencies": {
+		"@companion-module/base": "~1.14.1"
+	},
+	"devDependencies": {
+		"@companion-module/tools": "^2.7.2",
+		"prettier": "^3.4.2"
+	}
+}

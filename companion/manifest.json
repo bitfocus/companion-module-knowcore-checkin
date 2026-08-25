@@ -1,0 +1,26 @@
+{
+	"id": "knowcore-checkin",
+	"name": "knowcore-checkin",
+	"shortname": "knowcore",
+	"description": "Control KnowCore NFC tag redirect destinations live from Companion — send taps to giving, connect cards, or any pre-approved destination during your service, then revert to check-in.",
+	"version": "0.0.0",
+	"license": "MIT",
+	"repository": "https://github.com/bitfocus/companion-module-knowcore-checkin.git",
+	"bugs": "https://github.com/bitfocus/companion-module-knowcore-checkin/issues",
+	"maintainers": [
+		{
+			"name": "KnowCore",
+			"email": "hello@knowcore.app"
+		}
+	],
+	"legacyIds": [],
+	"runtime": {
+		"type": "node18",
+		"api": "nodejs-ipc",
+		"apiVersion": "0.0.0",
+		"entrypoint": "../main.js"
+	},
+	"manufacturer": "KnowCore",
+	"products": ["Check-In Platform"],
+	"keywords": ["church", "check-in", "nfc", "knowcore", "giving"]
+}
