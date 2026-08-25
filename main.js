@@ -148,7 +148,7 @@ class KnowCoreInstance extends InstanceBase {
 				this.updateStatus(InstanceStatus.Ok)
 			}
 			this.refreshVariables()
-			this.checkFeedbacks('target_active', 'redirect_live')
+			this.checkFeedbacks('target_active', 'redirect_live', 'checkin_active')
 		} catch (err) {
 			if (err.message === 'auth') {
 				this.updateStatus(InstanceStatus.AuthenticationFailure, 'Invalid control token (or Bitfocus integration disabled)')
@@ -223,7 +223,7 @@ class KnowCoreInstance extends InstanceBase {
 					this.state.target = data.target || target
 					this.state.expiresAt = data.expiresAt || null
 					this.refreshVariables()
-					this.checkFeedbacks('target_active', 'redirect_live')
+					this.checkFeedbacks('target_active', 'redirect_live', 'checkin_active')
 				},
 			},
 			revert: {
@@ -234,7 +234,7 @@ class KnowCoreInstance extends InstanceBase {
 					this.state.target = CHECKIN
 					this.state.expiresAt = null
 					this.refreshVariables()
-					this.checkFeedbacks('target_active', 'redirect_live')
+					this.checkFeedbacks('target_active', 'redirect_live', 'checkin_active')
 				},
 			},
 		}
@@ -262,6 +262,17 @@ class KnowCoreInstance extends InstanceBase {
 					},
 				],
 				callback: (feedback) => this.state.target === String(feedback.options.target || '').trim(),
+			},
+			checkin_active: {
+				type: 'boolean',
+				name: 'Check-in is active (no redirect)',
+				description: 'True while tag taps behave normally (no redirect is active)',
+				defaultStyle: {
+					bgcolor: combineRgb(0, 153, 68),
+					color: combineRgb(255, 255, 255),
+				},
+				options: [],
+				callback: () => this.state.target === CHECKIN,
 			},
 			redirect_live: {
 				type: 'boolean',
@@ -323,9 +334,9 @@ class KnowCoreInstance extends InstanceBase {
 			],
 			feedbacks: [
 				{
-					feedbackId: 'redirect_live',
+					feedbackId: 'checkin_active',
 					options: {},
-					style: { bgcolor: combineRgb(153, 0, 0), color: combineRgb(255, 255, 255) },
+					style: { bgcolor: combineRgb(0, 153, 68), color: combineRgb(255, 255, 255) },
 				},
 			],
 		}
