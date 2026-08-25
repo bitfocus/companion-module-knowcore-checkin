@@ -3,6 +3,10 @@ const UpgradeScripts = require('./upgrades')
 
 const CHECKIN = 'checkin'
 
+// 72x72 button image: the KnowCore mark top-centered, transparent lower half for the label text.
+const LOGO_PNG64 =
+	'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'
+
 class KnowCoreInstance extends InstanceBase {
 	constructor(internal) {
 		super(internal)
@@ -336,8 +340,11 @@ class KnowCoreInstance extends InstanceBase {
 				category: 'Destinations',
 				name: `Tags → ${d.key}`,
 				style: {
-					text: `Tags →\n${d.key}`,
-					size: 'auto',
+					text: d.key,
+					size: '14',
+					alignment: 'center:bottom',
+					png64: LOGO_PNG64,
+					pngalignment: 'center:top',
 					color: combineRgb(255, 255, 255),
 					bgcolor: combineRgb(0, 0, 0),
 				},
@@ -361,8 +368,11 @@ class KnowCoreInstance extends InstanceBase {
 			category: 'Destinations',
 			name: 'Tags → Check-In',
 			style: {
-				text: 'Tags →\nCheck-In',
-				size: 'auto',
+				text: 'Check-In',
+				size: '14',
+				alignment: 'center:bottom',
+				png64: LOGO_PNG64,
+				pngalignment: 'center:top',
 				color: combineRgb(255, 255, 255),
 				bgcolor: combineRgb(0, 0, 0),
 			},
