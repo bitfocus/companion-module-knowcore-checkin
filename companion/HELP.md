@@ -11,12 +11,14 @@ Because destinations are whitelisted by name inside KnowCore, Companion can only
 3. In Companion, add this connection and enter:
    - **Church slug** — the first part of your church's KnowCore address (for `mychurch.knowcore.app`, the slug is `mychurch`).
    - **Control token** — the token from step 1.
-4. The connection turns green when the token is verified. Your destinations appear automatically in the action dropdowns and as ready-made **presets** (one button per destination, plus a "Tags → Check-In" revert button).
+   - **Status poll interval** — how often Companion re-reads the live status (10–300 s, default 10).
+   - **Server URL** — leave the default unless KnowCore support tells you otherwise.
+4. The connection turns green once the token is verified _and_ the redirect mode is set to Bitfocus (until then it shows a warning naming the current mode). Your destinations appear automatically in the action dropdowns and as ready-made **presets** (one button per destination, plus a "Tags → Check-In" revert button). The token is stored in Companion's secrets store and is not shown in the UI. Actions run one at a time, so a press made while a previous request is still waiting on KnowCore (up to 10 seconds) runs right after it.
 
 ## Actions
 
 - **Toggle tag destination** — press to redirect all tag taps to a destination, press again to revert to check-in (what the destination presets use).
-- **Set tag destination** — always switches *to* the destination (never toggles off) — useful for triggers/automation, e.g. a ProPresenter slide cue.
+- **Set tag destination** — always switches _to_ the destination (never toggles off) — useful for triggers/automation, e.g. a ProPresenter slide cue.
 - **Revert to check-in** — taps behave normally again.
 
 Every redirect carries an auto-revert timeout (default 5 minutes, max 12 hours) as a safety net in case nobody presses revert after the service.
