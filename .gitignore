@@ -4,3 +4,4 @@ pkg.tgz
 *.tgz
 *.log
 .DS_Store
+.yarn/

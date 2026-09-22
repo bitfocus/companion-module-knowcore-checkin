@@ -2,6 +2,9 @@ const { InstanceBase, InstanceStatus, runEntrypoint, combineRgb, Regex } = requi
 const UpgradeScripts = require('./upgrades')
 
 const CHECKIN = 'checkin'
+const DEFAULT_SERVER = 'https://checkin.knowcore.app'
+const REQUEST_TIMEOUT_MS = 10000
+const ALL_FEEDBACKS = ['target_active', 'redirect_live', 'checkin_active']
 
 // 72x72 button image: the KnowCore mark top-centered, transparent lower half for the label text.
 const LOGO_PNG64 =
@@ -10,13 +13,18 @@ const LOGO_PNG64 =
 class KnowCoreInstance extends InstanceBase {
 	constructor(internal) {
 		super(internal)
+		this.config = {}
+		this.secrets = {}
 		this.destinations = [] // [{ key }] from the server
 		this.state = { target: CHECKIN, mode: null, churchName: null, expiresAt: null }
 		this.pollTimer = null
+		this.pollGeneration = 0 // bumped on every (re)start so a stale poll chain stops itself
+		this.pollInFlight = null // the Promise of the poll currently running, if any
 	}
 
-	async init(config) {
-		this.config = config
+	async init(config, _isFirstInit, secrets) {
+		this.config = config || {}
+		this.secrets = secrets || {}
 		this.rebuildDefinitions()
 		await this.startPolling()
 	}
@@ -25,8 +33,9 @@ class KnowCoreInstance extends InstanceBase {
 		this.stopPolling()
 	}
 
-	async configUpdated(config) {
-		this.config = config
+	async configUpdated(config, secrets) {
+		this.config = config || {}
+		this.secrets = secrets || {}
 		this.rebuildDefinitions()
 		await this.startPolling()
 	}
@@ -49,7 +58,7 @@ class KnowCoreInstance extends InstanceBase {
 				required: true,
 			},
 			{
-				type: 'textinput',
+				type: 'secret-text',
 				id: 'token',
 				label: 'Control token',
 				width: 6,
@@ -69,28 +78,40 @@ class KnowCoreInstance extends InstanceBase {
 				id: 'server',
 				label: 'Server URL (leave default unless told otherwise)',
 				width: 8,
-				default: 'https://checkin.knowcore.app',
+				default: DEFAULT_SERVER,
 				regex: Regex.SOMETHING,
 			},
 		]
 	}
 
-	// ── HTTP helpers ────────────────────────────────────────────────────────────
+	// ── Config accessors ────────────────────────────────────────────────────────
+
+	slug() {
+		return String(this.config.slug || '').trim()
+	}
+
+	token() {
+		return String(this.secrets.token || '').trim()
+	}
 
 	baseUrl() {
-		const server = (this.config.server || 'https://checkin.knowcore.app').trim().replace(/\/+$/, '')
-		return `${server}/live/${encodeURIComponent((this.config.slug || '').trim())}/control`
+		const server = String(this.config.server || DEFAULT_SERVER)
+			.trim()
+			.replace(/\/+$/, '')
+		return `${server}/live/${encodeURIComponent(this.slug())}/control`
 	}
+
+	// ── HTTP ────────────────────────────────────────────────────────────────────
 
 	async apiRequest(method, body) {
 		const res = await fetch(this.baseUrl(), {
 			method,
 			headers: {
-				Authorization: `Bearer ${(this.config.token || '').trim()}`,
+				Authorization: `Bearer ${this.token()}`,
 				...(body ? { 'Content-Type': 'application/json' } : {}),
 			},
 			body: body ? JSON.stringify(body) : undefined,
-			signal: AbortSignal.timeout(10000),
+			signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
 		})
 		let data = null
 		try {
@@ -106,68 +127,184 @@ class KnowCoreInstance extends InstanceBase {
 		return data
 	}
 
-	// ── Polling ─────────────────────────────────────────────────────────────────
-
-	async startPolling() {
-		this.stopPolling()
-		if (!this.config.slug || !this.config.token) {
-			this.updateStatus(InstanceStatus.BadConfig, 'Enter your church slug and control token')
-			return
+	/** Map an API failure onto the connection status indicator. */
+	handleApiError(err) {
+		const message = String((err && err.message) || err)
+		if (message === 'auth') {
+			this.updateStatus(
+				InstanceStatus.AuthenticationFailure,
+				'Invalid control token (or Bitfocus integration disabled)',
+			)
+		} else if (message === 'notfound') {
+			this.updateStatus(InstanceStatus.BadConfig, `No church found for slug "${this.slug()}"`)
+		} else if (/timeout|abort/i.test(message)) {
+			this.updateStatus(InstanceStatus.ConnectionFailure, 'KnowCore did not respond in time')
+		} else {
+			this.updateStatus(InstanceStatus.ConnectionFailure, message)
 		}
-		this.updateStatus(InstanceStatus.Connecting)
-		await this.pollStatus()
-		const interval = Math.min(300, Math.max(10, Number(this.config.pollInterval) || 10)) * 1000
-		this.pollTimer = setInterval(() => {
-			this.pollStatus().catch(() => {})
-		}, interval)
+		this.log('error', `KnowCore request failed: ${message}`)
 	}
 
-	stopPolling() {
-		if (this.pollTimer) {
-			clearInterval(this.pollTimer)
-			this.pollTimer = null
+	/** Reflect a healthy server response in the status indicator. */
+	setHealthyStatus() {
+		if (this.state.mode !== 'bitfocus') {
+			this.updateStatus(
+				InstanceStatus.UnknownWarning,
+				`Connected, but NFC redirect mode is "${this.state.mode}" — set it to Bitfocus in Check-Ins → Tag Redirect`,
+			)
+		} else {
+			this.updateStatus(InstanceStatus.Ok)
 		}
 	}
 
-	async pollStatus() {
-		try {
-			const data = await this.apiRequest('GET')
-			this.state = {
-				target: data.target || CHECKIN,
-				mode: data.mode || null,
-				churchName: data.churchName || null,
-				expiresAt: data.expiresAt || null,
-			}
-			const keys = (data.destinations || []).map((d) => d.key).filter(Boolean)
+	// ── State ───────────────────────────────────────────────────────────────────
+
+	/** Absorb a control-API response (GET status or POST result) into local state. */
+	applyState(data) {
+		if (!data) return
+		this.state = {
+			target: data.target || CHECKIN,
+			mode: data.mode !== undefined ? data.mode || null : this.state.mode,
+			churchName: data.churchName !== undefined ? data.churchName || null : this.state.churchName,
+			expiresAt: data.expiresAt !== undefined ? data.expiresAt || null : this.state.expiresAt,
+		}
+		if (Array.isArray(data.destinations)) {
+			const keys = data.destinations.map((d) => d && d.key).filter(Boolean)
 			if (JSON.stringify(keys) !== JSON.stringify(this.destinations.map((d) => d.key))) {
 				this.destinations = keys.map((key) => ({ key }))
 				this.rebuildDefinitions()
 			}
-			if (this.state.mode !== 'bitfocus') {
-				this.updateStatus(
-					InstanceStatus.UnknownWarning,
-					`Connected, but NFC redirect mode is "${this.state.mode}" — set it to Bitfocus in Check-Ins → Tag Redirect`
-				)
-			} else {
-				this.updateStatus(InstanceStatus.Ok)
-			}
-			this.refreshVariables()
-			this.checkFeedbacks('target_active', 'redirect_live', 'checkin_active')
-		} catch (err) {
-			if (err.message === 'auth') {
-				this.updateStatus(InstanceStatus.AuthenticationFailure, 'Invalid control token (or Bitfocus integration disabled)')
-			} else if (err.message === 'notfound') {
-				this.updateStatus(InstanceStatus.BadConfig, `No church found for slug "${this.config.slug}"`)
-			} else {
-				this.updateStatus(InstanceStatus.ConnectionFailure, String(err.message || err))
-			}
 		}
+		this.refreshVariables()
+		this.checkFeedbacks(...ALL_FEEDBACKS)
+	}
+
+	/**
+	 * Fetch the live status from KnowCore and apply it. Concurrent callers share one in-flight
+	 * request, so an action re-poll can never overlap a scheduled poll.
+	 */
+	fetchState() {
+		if (this.pollInFlight) return this.pollInFlight
+		this.pollInFlight = (async () => {
+			try {
+				const data = await this.apiRequest('GET')
+				this.applyState(data)
+				this.setHealthyStatus()
+				return this.state
+			} finally {
+				this.pollInFlight = null
+			}
+		})()
+		return this.pollInFlight
+	}
+
+	// ── Polling ─────────────────────────────────────────────────────────────────
+
+	async startPolling() {
+		this.stopPolling()
+		if (!this.slug() || !this.token()) {
+			this.updateStatus(InstanceStatus.BadConfig, 'Enter your church slug and control token')
+			return
+		}
+		this.updateStatus(InstanceStatus.Connecting)
+		const generation = ++this.pollGeneration
+		await this.pollOnce(generation)
+	}
+
+	stopPolling() {
+		this.pollGeneration++ // orphans any chain that is mid-request
+		if (this.pollTimer) {
+			clearTimeout(this.pollTimer)
+			this.pollTimer = null
+		}
+	}
+
+	pollIntervalMs() {
+		return Math.min(300, Math.max(10, Number(this.config.pollInterval) || 10)) * 1000
+	}
+
+	/**
+	 * One poll, then schedule the next only after this one has fully finished (success or
+	 * failure). A slow or timing-out request therefore delays the next tick instead of
+	 * overlapping it.
+	 */
+	async pollOnce(generation) {
+		try {
+			await this.fetchState()
+		} catch (err) {
+			if (generation === this.pollGeneration) this.handleApiError(err)
+		}
+		if (generation !== this.pollGeneration) return // polling was stopped/restarted meanwhile
+		this.pollTimer = setTimeout(() => {
+			this.pollTimer = null
+			this.pollOnce(generation).catch(() => {})
+		}, this.pollIntervalMs())
+	}
+
+	/** Re-sync soon after an action, without waiting for the next scheduled tick. */
+	resyncSoon() {
+		this.fetchState().catch((err) => this.handleApiError(err))
+	}
+
+	// ── Actions ─────────────────────────────────────────────────────────────────
+
+	/**
+	 * Run an action's API call with consistent error handling: a failure updates the status
+	 * indicator immediately and triggers a re-poll, so the operator sees the problem now rather
+	 * than at the next scheduled poll.
+	 */
+	async runAction(label, fn) {
+		try {
+			await fn()
+			this.setHealthyStatus()
+		} catch (err) {
+			this.handleApiError(err)
+			this.log('warn', `${label} failed; re-syncing status from KnowCore`)
+			this.resyncSoon()
+		}
+	}
+
+	async setTarget(target, ttlMinutes) {
+		const data = await this.apiRequest('POST', { target, ttlMinutes })
+		this.applyState({ ...data, target: data.target || target })
+	}
+
+	async clearTarget() {
+		const data = await this.apiRequest('POST', { clear: true })
+		this.applyState({ ...data, target: data.target || CHECKIN, expiresAt: data.expiresAt || null })
 	}
 
 	// ── Definitions (rebuilt when the destination list changes) ─────────────────
 
 	destinationChoices() {
 		return this.destinations.map((d) => ({ id: d.key, label: d.key }))
+	}
+
+	destinationDropdown() {
+		const choices = this.destinationChoices()
+		return {
+			type: 'dropdown',
+			id: 'target',
+			label: 'Destination',
+			choices: choices.length
+				? choices
+				: [{ id: '', label: 'No destinations yet — add them in KnowCore (Check-Ins → Tag Redirect)' }],
+			default: choices.length ? choices[0].id : '',
+			allowCustom: true,
+			tooltip: 'A destination name defined in KnowCore under Check-Ins → Tag Redirect',
+		}
+	}
+
+	ttlField() {
+		return {
+			type: 'number',
+			id: 'ttlMinutes',
+			label: 'Auto-revert after (minutes)',
+			default: 5,
+			min: 1,
+			max: 720,
+			tooltip: 'Safety net: the redirect reverts to check-in on its own after this long',
+		}
 	}
 
 	rebuildDefinitions() {
@@ -193,92 +330,43 @@ class KnowCoreInstance extends InstanceBase {
 	}
 
 	buildActions() {
-		const choices = this.destinationChoices()
 		return {
 			set_target: {
 				name: 'Set tag destination',
-				options: [
-					{
-						type: 'dropdown',
-						id: 'target',
-						label: 'Destination',
-						choices: choices.length ? choices : [{ id: '', label: 'No destinations yet — add them in KnowCore (Check-Ins → Tag Redirect)' }],
-						default: choices.length ? choices[0].id : '',
-						allowCustom: true,
-						tooltip: 'A destination name defined in KnowCore under Check-Ins → Tag Redirect',
-					},
-					{
-						type: 'number',
-						id: 'ttlMinutes',
-						label: 'Auto-revert after (minutes)',
-						default: 5,
-						min: 1,
-						max: 720,
-						tooltip: 'Safety net: the redirect reverts to check-in on its own after this long',
-					},
-				],
+				options: [this.destinationDropdown(), this.ttlField()],
 				callback: async (event) => {
 					const target = String(event.options.target || '').trim()
 					if (!target) return
-					const data = await this.apiRequest('POST', {
-						target,
-						ttlMinutes: Number(event.options.ttlMinutes) || 5,
-					})
-					this.state.target = data.target || target
-					this.state.expiresAt = data.expiresAt || null
-					this.refreshVariables()
-					this.checkFeedbacks('target_active', 'redirect_live', 'checkin_active')
+					await this.runAction('Set tag destination', () =>
+						this.setTarget(target, Number(event.options.ttlMinutes) || 5),
+					)
 				},
 			},
 			toggle_target: {
 				name: 'Toggle tag destination',
 				description: 'Press to redirect taps to the destination; press again to revert to check-in',
-				options: [
-					{
-						type: 'dropdown',
-						id: 'target',
-						label: 'Destination',
-						choices: choices.length ? choices : [{ id: '', label: 'No destinations yet — add them in KnowCore (Check-Ins → Tag Redirect)' }],
-						default: choices.length ? choices[0].id : '',
-						allowCustom: true,
-					},
-					{
-						type: 'number',
-						id: 'ttlMinutes',
-						label: 'Auto-revert after (minutes)',
-						default: 5,
-						min: 1,
-						max: 720,
-					},
-				],
+				options: [this.destinationDropdown(), this.ttlField()],
 				callback: async (event) => {
 					const target = String(event.options.target || '').trim()
 					if (!target) return
-					if (this.state.target === target) {
-						await this.apiRequest('POST', { clear: true })
-						this.state.target = CHECKIN
-						this.state.expiresAt = null
-					} else {
-						const data = await this.apiRequest('POST', {
-							target,
-							ttlMinutes: Number(event.options.ttlMinutes) || 5,
-						})
-						this.state.target = data.target || target
-						this.state.expiresAt = data.expiresAt || null
-					}
-					this.refreshVariables()
-					this.checkFeedbacks('target_active', 'redirect_live', 'checkin_active')
+					await this.runAction('Toggle tag destination', async () => {
+						// Decide from KnowCore's *current* target, not the last poll: the dashboard or
+						// another operator may have changed it since, and toggling on stale state would
+						// do the opposite of what the operator expects.
+						const fresh = await this.fetchState()
+						if (fresh.target === target) {
+							await this.clearTarget()
+						} else {
+							await this.setTarget(target, Number(event.options.ttlMinutes) || 5)
+						}
+					})
 				},
 			},
 			revert: {
 				name: 'Revert to check-in',
 				options: [],
 				callback: async () => {
-					await this.apiRequest('POST', { clear: true })
-					this.state.target = CHECKIN
-					this.state.expiresAt = null
-					this.refreshVariables()
-					this.checkFeedbacks('target_active', 'redirect_live', 'checkin_active')
+					await this.runAction('Revert to check-in', () => this.clearTarget())
 				},
 			},
 		}
